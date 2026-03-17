@@ -1,78 +1,106 @@
 from collections import Counter
 from openai import OpenAI
+from github import Github, Auth
 import os
 
+# === Настройки ===
+OPENAI_API_KEY = os.environ.get('OpenAIkey', '')
+GITHUB_TOKEN = "qqqqqqqqqqqqq"
+REPO_NAME = "sanzhar73ismailov/CacheLis"  # формат username/repo
+LOG_FILE = r"logs\logs260317.txt"
+TARGET_FILE = "main.py"  # файл, который будем изменять
 
-api_key = os.environ.get('OpenAIkey', '')
-client = OpenAI(api_key=api_key)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
+
+# === Чтение логов и подсчёт ошибок ===
 def read_errors(file):
-
     counter = Counter()
-
     with open(file, "r", encoding="utf-8") as f:
-
         header = f.readline().strip().split("\t")
-
         message_index = header.index("Message")
         event_index = header.index("EventType")
 
         for line in f:
             cols = line.split("\t")
-
             if len(cols) <= message_index:
                 continue
-
             if cols[event_index] == "ERROR":
                 message = cols[message_index]
                 if "Email Support Error" not in message:
                     counter[message] += 1
-
     return counter
 
 
 def top_errors(counter, n=10):
-
     return counter.most_common(n)
 
 
-def analyze_errors(top_errors):
-
-    text = "\n".join([f"{count}x {msg}" for msg, count in top_errors])
-
+# === Генерация исправления через OpenAI ===
+def generate_fix(error_message, context="Python code"):
     prompt = f"""
-You are a DevOps assistant.
+You are a senior developer.
 
-Analyze the most frequent application errors.
+Project: Cache Object Script (Intersystems, ver. 2014).
 
-Errors:
-{text}
+There is a recurring error in the code:
 
-Explain:
-- most likely root causes
-- recommended fixes
-- which issue should be fixed first
+Error: {error_message}
+
+Generate a code snippet that fixes this error.
+Provide only the code changes, ready to be applied in a pull request.
 """
-
     response = client.responses.create(
         model="gpt-4.1-mini",
         input=prompt
     )
+    return response.output_text.strip()
 
-    return response.output_text
+
+# === Создание ветки и пулл-реквеста на GitHub ===
+def create_pr(repo_name, branch_name, pr_title, pr_body, github_token, fix_code, target_file):
+    auth = Auth.Token(github_token)
+    g = Github(auth=auth)
+    repo = g.get_repo(repo_name)
 
 
-counter = read_errors(r"C:\Users\sanzh\Downloads\logs260317.txt")
+    # создаём ветку от main
+    source = repo.get_branch("main")
+    repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=source.commit.sha)
 
+    # получаем файл и добавляем исправление
+    file_content = repo.get_contents(target_file, ref=branch_name)
+    new_content = file_content.decoded_content.decode() + "\n\n# Fix for: " + pr_title + "\n" + fix_code
+    repo.update_file(target_file, pr_title, new_content, file_content.sha, branch=branch_name)
+
+    # создаём PR
+    pr = repo.create_pull(title=pr_title, body=pr_body, head=branch_name, base="main")
+    return pr.html_url
+
+
+# === Основная логика ===
+counter = read_errors(LOG_FILE)
 top10 = top_errors(counter, 10)
 
-print("Top errors:\n")
+if not top10:
+    print("No errors found in log.")
+    exit()
 
-for msg, count in top10:
-    print(f"{count}x {msg}")
+# самая частая ошибка
+most_common_error, count = top10[0]
 
-print("\nAI analysis:\n")
+print(f"Most common error ({count}x): {most_common_error}")
 
-report = analyze_errors(top10)
+# генерация исправления
+fix_code = generate_fix(most_common_error, context="Python application")
+print("\nSuggested fix:\n")
+print(fix_code)
 
-print(report)
+# создание PR
+branch_name = "fix-most-common-error"
+pr_title = f"Fix: {most_common_error}"
+pr_body = f"This PR fixes the most frequent error: {most_common_error}\n\nSuggested fix:\n{fix_code}"
+
+pr_url = create_pr(REPO_NAME, branch_name, pr_title, pr_body, GITHUB_TOKEN, fix_code, TARGET_FILE)
+
+print(f"\nPull request created: {pr_url}")
