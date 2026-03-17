@@ -2,13 +2,14 @@ from collections import Counter
 from openai import OpenAI
 from github import Github, Auth
 import os
+import time
 
 # === Настройки ===
 OPENAI_API_KEY = os.environ.get('OpenAIkey', '')
-GITHUB_TOKEN = "qqqqqqqqqqqqq"
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
 REPO_NAME = "sanzhar73ismailov/CacheLis"  # формат username/repo
 LOG_FILE = r"logs\logs260317.txt"
-TARGET_FILE = "main.py"  # файл, который будем изменять
+TARGET_FILE = "mac/restClient.xml"  # файл, который будем изменять
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -91,13 +92,28 @@ most_common_error, count = top10[0]
 
 print(f"Most common error ({count}x): {most_common_error}")
 
+json_string = '''
+{
+  "Arguments": "",
+  "ClassName": "unknown ip",
+  "ClientIPAddress": "ERROR",
+  "EventType": "Exception, наименование ошибки:ОШИБКА #6059: Не удалось открыть TCP/IP сокет к серверу armed.biostat.kz:80<br>, код: CodeNum, локализация: данные: Rest.RestHttpClient:GetOrders",
+  "Message": "",
+  "MethodName": "ProcessOrdersFromRest+18^restClient +1",
+  "Source": "2026-02-17 09:26:12",
+  "TimeStamp": "UserWithoutSession",
+  "UserName": ""
+}
+'''
+
 # генерация исправления
-fix_code = generate_fix(most_common_error, context="Python application")
+#fix_code = generate_fix(most_common_error, context="Python application")
+fix_code = generate_fix(json_string, context="Python application")
 print("\nSuggested fix:\n")
 print(fix_code)
 
 # создание PR
-branch_name = "fix-most-common-error"
+branch_name = f"fix-error-{int(time.time())}"
 pr_title = f"Fix: {most_common_error}"
 pr_body = f"This PR fixes the most frequent error: {most_common_error}\n\nSuggested fix:\n{fix_code}"
 
